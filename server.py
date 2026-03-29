@@ -27,7 +27,7 @@ def get_env(task: str) -> BusinessStrategyEnv:
     return _envs[task]
 
 
-# ─── Request / Response Models ───────────────────────────────────────────────
+# ─── Request / Response Models ────────────────────────────────────────────────
 
 class ResetRequest(BaseModel):
     task: str = Field(default="survive", description="Task name: survive | grow_market_share | scale_profitably")
@@ -41,16 +41,95 @@ class StepRequest(BaseModel):
 class GraderRequest(BaseModel):
     task: str = Field(..., description="Task to grade")
 
+class MCPRequest(BaseModel):
+    jsonrpc: str = "2.0"
+    method: Optional[str] = None
+    id: Optional[int] = 1
+    params: Optional[Dict[str, Any]] = None
 
-# ─── Core OpenEnv Endpoints ───────────────────────────────────────────────────
 
-@app.get("/", summary="Health check")
+# ─── Health & Metadata Endpoints ──────────────────────────────────────────────
+
+@app.get("/", summary="Root")
 def root():
     return {"status": "ok", "environment": "BusinessStrategyEnv", "version": "1.0.0"}
 
+@app.get("/health", summary="Health check")
+def health():
+    return {"status": "healthy"}
+
+@app.get("/metadata", summary="Environment metadata")
+def metadata():
+    return {
+        "name": "business-strategy-env",
+        "description": "A real-world business strategy simulation where an AI agent makes CEO-level quarterly decisions to grow a company across three tasks of increasing difficulty.",
+        "version": "1.0.0",
+        "author": "Krish Lathiya",
+        "tasks": list(GRADERS.keys()),
+    }
+
+@app.get("/schema", summary="Action, observation and state schemas")
+def schema():
+    return {
+        "action": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": BusinessStrategyEnv.ACTIONS},
+                "amount": {"type": "number", "default": 5000.0}
+            },
+            "required": ["action"]
+        },
+        "observation": {
+            "type": "object",
+            "properties": {
+                "revenue": {"type": "number"},
+                "costs": {"type": "number"},
+                "profit": {"type": "number"},
+                "market_share": {"type": "number"},
+                "employees": {"type": "integer"},
+                "customer_satisfaction": {"type": "number"},
+                "marketing_budget": {"type": "number"},
+                "rd_investment": {"type": "number"},
+                "product_quality": {"type": "number"},
+                "quarter": {"type": "integer"},
+                "max_quarters": {"type": "integer"},
+                "done": {"type": "boolean"},
+                "reward": {"type": "number"},
+                "message": {"type": "string"},
+            }
+        },
+        "state": {
+            "type": "object",
+            "properties": {
+                "revenue": {"type": "number"},
+                "costs": {"type": "number"},
+                "profit": {"type": "number"},
+                "market_share": {"type": "number"},
+                "employees": {"type": "integer"},
+                "customer_satisfaction": {"type": "number"},
+                "quarter": {"type": "integer"},
+                "done": {"type": "boolean"},
+            }
+        }
+    }
+
+@app.post("/mcp", summary="MCP JSON-RPC endpoint")
+def mcp(req: MCPRequest = None):
+    return {
+        "jsonrpc": "2.0",
+        "id": req.id if req else 1,
+        "result": {
+            "name": "business-strategy-env",
+            "version": "1.0.0",
+            "capabilities": ["reset", "step", "state", "tasks", "grader", "baseline"]
+        }
+    }
+
+
+# ─── Core OpenEnv Endpoints ───────────────────────────────────────────────────
+
 @app.post("/reset", summary="Reset the environment")
 def reset(req: ResetRequest):
-    """Reset the environment for a given task and return the initial state."""
     valid_tasks = list(GRADERS.keys())
     if req.task not in valid_tasks:
         raise HTTPException(status_code=400, detail=f"Invalid task '{req.task}'. Valid: {valid_tasks}")
@@ -60,23 +139,18 @@ def reset(req: ResetRequest):
 
 @app.post("/step", summary="Take an action in the environment")
 def step(req: StepRequest):
-    """Submit an action and advance the environment by one quarter."""
     env = get_env(req.task)
-    result = env.step(action=req.action, amount=req.amount)
-    return result
+    return env.step(action=req.action, amount=req.amount)
 
 @app.get("/state", summary="Get current environment state")
 def state(task: str = "survive"):
-    """Return the current state without advancing the environment."""
-    env = get_env(task)
-    return env.state()
+    return get_env(task).state()
 
 
 # ─── Additional Required Endpoints ───────────────────────────────────────────
 
 @app.get("/tasks", summary="List all tasks and action schemas")
 def tasks():
-    """Returns all available tasks, their descriptions, and the action schema."""
     return {
         "tasks": [
             {
@@ -115,43 +189,35 @@ def tasks():
                 "type": "float",
                 "required": False,
                 "default": 5000.0,
-                "description": "Dollar amount associated with the action (e.g., marketing spend, investment).",
+                "description": "Dollar amount associated with the action.",
             },
         },
         "observation_space": {
             "revenue": "float — quarterly revenue in USD",
             "costs": "float — total quarterly costs in USD",
             "profit": "float — revenue minus costs",
-            "market_share": "float [0.0–1.0] — fraction of total market",
+            "market_share": "float [0.0-1.0] — fraction of total market",
             "employees": "int — number of employees",
-            "customer_satisfaction": "float [0.0–1.0]",
+            "customer_satisfaction": "float [0.0-1.0]",
             "marketing_budget": "float — current marketing spend",
             "rd_investment": "float — current R&D spend",
-            "product_quality": "float [0.0–1.0]",
+            "product_quality": "float [0.0-1.0]",
             "quarter": "int — current quarter number",
             "max_quarters": "int — max quarters for this task",
             "done": "bool — whether episode has ended",
-            "reward": "float [0.0–1.0] — reward for this step",
+            "reward": "float [0.0-1.0] — reward for this step",
             "message": "str — human-readable summary of the quarter",
         },
     }
 
-
 @app.post("/grader", summary="Grade a completed episode")
 def grader(req: GraderRequest):
-    """Run the grader on the current episode state and return a score [0.0–1.0]."""
     env = get_env(req.task)
     final_state = env.state()
-    result = run_grader(task=req.task, history=env.history, final_state=final_state)
-    return result
-
+    return run_grader(task=req.task, history=env.history, final_state=final_state)
 
 @app.get("/baseline", summary="Run baseline agent and return scores for all tasks")
 def baseline():
-    """
-    Runs a simple rule-based baseline agent on all 3 tasks.
-    Returns reproducible baseline scores.
-    """
     from baseline import run_baseline_agent
     scores = {}
     for task in GRADERS.keys():
@@ -161,33 +227,3 @@ def baseline():
 
 if __name__ == "__main__":
     uvicorn.run("server:app", host="0.0.0.0", port=7860, reload=False)
-     
-# ✅ Health Endpoint
-@app.get("/health")
-def health():
-    return {"status": "healthy"}
-
-# ✅ Metadata Endpoint
-@app.get("/metadata")
-def metadata():
-    return {
-        "name": "Business Strategy Env",
-        "description": "AI-powered business strategy simulation environment"
-    }
-
-# ✅ Schema Endpoint
-@app.get("/schema")
-def schema():
-    return {
-        "action": {"type": "object"},
-        "observation": {"type": "object"},
-        "state": {"type": "object"}
-    }
-
-# ✅ MCP Endpoint
-@app.post("/mcp")
-def mcp():
-    return {
-        "jsonrpc": "2.0",
-        "result": "ok"
-    }
