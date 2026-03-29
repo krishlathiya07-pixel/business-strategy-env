@@ -1,3 +1,12 @@
+---
+title: Business Strategy Env
+emoji: 💼
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_file: server.py
+pinned: false
+---
 # 🏢 Business Strategy Simulation Environment
 
 An **OpenEnv-compliant** environment where an AI agent plays the role of a CEO, making quarterly strategic decisions to grow a company.
