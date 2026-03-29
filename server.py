@@ -1,11 +1,11 @@
 """
 FastAPI server for Business Strategy Simulation Environment.
-Implements full OpenEnv spec: step(), reset(), state() + /baseline, /grader, /tasks
+Implements full OpenEnv spec with typed Pydantic models.
 """
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import uvicorn
 
 from environment import BusinessStrategyEnv
@@ -17,9 +17,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# In-memory session store (one env per task)
 _envs: Dict[str, BusinessStrategyEnv] = {}
-
 
 def get_env(task: str) -> BusinessStrategyEnv:
     if task not in _envs:
@@ -27,16 +25,44 @@ def get_env(task: str) -> BusinessStrategyEnv:
     return _envs[task]
 
 
-# ─── Request / Response Models ────────────────────────────────────────────────
+# ─── Typed OpenEnv Models ─────────────────────────────────────────────────────
+
+class Observation(BaseModel):
+    """Typed observation returned after every step/reset."""
+    revenue: float = Field(..., description="Quarterly revenue in USD")
+    costs: float = Field(..., description="Total quarterly costs in USD")
+    profit: float = Field(..., description="Revenue minus costs")
+    market_share: float = Field(..., ge=0.0, le=1.0, description="Fraction of total market")
+    employees: int = Field(..., description="Number of employees")
+    customer_satisfaction: float = Field(..., ge=0.0, le=1.0)
+    marketing_budget: float = Field(..., description="Current marketing spend")
+    rd_investment: float = Field(..., description="Current R&D spend")
+    product_quality: float = Field(..., ge=0.0, le=1.0)
+    quarter: int = Field(..., description="Current quarter number")
+    max_quarters: int = Field(..., description="Max quarters for this task")
+    task: str = Field(..., description="Current task name")
+    done: bool = Field(..., description="Whether the episode has ended")
+    reward: float = Field(default=0.0, ge=0.0, le=1.0, description="Reward for this step")
+    message: str = Field(default="", description="Human-readable summary")
+
+class Action(BaseModel):
+    """Typed action submitted by the agent each step."""
+    action: str = Field(..., description="Strategic action to take", examples=["increase_marketing"])
+    amount: float = Field(default=5000.0, ge=0.0, description="Dollar amount for the action")
+
+class Reward(BaseModel):
+    """Typed reward returned by the grader."""
+    score: float = Field(..., ge=0.0, le=1.0, description="Episode score between 0.0 and 1.0")
+    reason: str = Field(..., description="Human-readable explanation of the score")
 
 class ResetRequest(BaseModel):
-    task: str = Field(default="survive", description="Task name: survive | grow_market_share | scale_profitably")
+    task: str = Field(default="survive", description="Task: survive | grow_market_share | scale_profitably")
     seed: int = Field(default=42, description="Random seed for reproducibility")
 
 class StepRequest(BaseModel):
     task: str = Field(default="survive")
-    action: str = Field(..., description="Action to take. See /tasks for valid actions.")
-    amount: float = Field(default=5000.0, description="Dollar amount for the action (where applicable)")
+    action: str = Field(..., description="Action to take")
+    amount: float = Field(default=5000.0)
 
 class GraderRequest(BaseModel):
     task: str = Field(..., description="Task to grade")
@@ -48,7 +74,7 @@ class MCPRequest(BaseModel):
     params: Optional[Dict[str, Any]] = None
 
 
-# ─── Health & Metadata Endpoints ──────────────────────────────────────────────
+# ─── Health / Metadata / Schema / MCP ────────────────────────────────────────
 
 @app.get("/", summary="Root")
 def root():
@@ -71,46 +97,9 @@ def metadata():
 @app.get("/schema", summary="Action, observation and state schemas")
 def schema():
     return {
-        "action": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": BusinessStrategyEnv.ACTIONS},
-                "amount": {"type": "number", "default": 5000.0}
-            },
-            "required": ["action"]
-        },
-        "observation": {
-            "type": "object",
-            "properties": {
-                "revenue": {"type": "number"},
-                "costs": {"type": "number"},
-                "profit": {"type": "number"},
-                "market_share": {"type": "number"},
-                "employees": {"type": "integer"},
-                "customer_satisfaction": {"type": "number"},
-                "marketing_budget": {"type": "number"},
-                "rd_investment": {"type": "number"},
-                "product_quality": {"type": "number"},
-                "quarter": {"type": "integer"},
-                "max_quarters": {"type": "integer"},
-                "done": {"type": "boolean"},
-                "reward": {"type": "number"},
-                "message": {"type": "string"},
-            }
-        },
-        "state": {
-            "type": "object",
-            "properties": {
-                "revenue": {"type": "number"},
-                "costs": {"type": "number"},
-                "profit": {"type": "number"},
-                "market_share": {"type": "number"},
-                "employees": {"type": "integer"},
-                "customer_satisfaction": {"type": "number"},
-                "quarter": {"type": "integer"},
-                "done": {"type": "boolean"},
-            }
-        }
+        "action": Action.model_json_schema(),
+        "observation": Observation.model_json_schema(),
+        "state": Observation.model_json_schema(),
     }
 
 @app.post("/mcp", summary="MCP JSON-RPC endpoint")
@@ -128,26 +117,37 @@ def mcp(req: MCPRequest = None):
 
 # ─── Core OpenEnv Endpoints ───────────────────────────────────────────────────
 
-@app.post("/reset", summary="Reset the environment")
+@app.post("/reset", response_model=Observation, summary="Reset the environment")
 def reset(req: ResetRequest):
-    valid_tasks = list(GRADERS.keys())
-    if req.task not in valid_tasks:
-        raise HTTPException(status_code=400, detail=f"Invalid task '{req.task}'. Valid: {valid_tasks}")
+    """Reset the environment for a given task and return the initial observation."""
+    if req.task not in GRADERS:
+        raise HTTPException(status_code=400, detail=f"Invalid task '{req.task}'. Valid: {list(GRADERS.keys())}")
     env = BusinessStrategyEnv(task=req.task, seed=req.seed)
     _envs[req.task] = env
-    return env.reset()
+    state = env.reset()
+    state.setdefault("reward", 0.0)
+    return state
 
-@app.post("/step", summary="Take an action in the environment")
+@app.post("/step", response_model=Observation, summary="Take an action in the environment")
 def step(req: StepRequest):
+    """Submit an action and advance the environment by one quarter."""
+    if req.action not in BusinessStrategyEnv.ACTIONS:
+        raise HTTPException(status_code=400, detail=f"Invalid action '{req.action}'. Valid: {BusinessStrategyEnv.ACTIONS}")
     env = get_env(req.task)
-    return env.step(action=req.action, amount=req.amount)
+    result = env.step(action=req.action, amount=req.amount)
+    result.setdefault("reward", 0.0)
+    return result
 
-@app.get("/state", summary="Get current environment state")
+@app.get("/state", response_model=Observation, summary="Get current environment state")
 def state(task: str = "survive"):
-    return get_env(task).state()
+    """Return the current state without advancing the environment."""
+    env = get_env(task)
+    s = env.state()
+    s.setdefault("reward", 0.0)
+    return s
 
 
-# ─── Additional Required Endpoints ───────────────────────────────────────────
+# ─── Additional Endpoints ─────────────────────────────────────────────────────
 
 @app.get("/tasks", summary="List all tasks and action schemas")
 def tasks():
@@ -183,41 +183,24 @@ def tasks():
                 "type": "string",
                 "required": True,
                 "valid_values": BusinessStrategyEnv.ACTIONS,
-                "description": "The strategic action to take this quarter.",
             },
             "amount": {
                 "type": "float",
                 "required": False,
                 "default": 5000.0,
-                "description": "Dollar amount associated with the action.",
             },
-        },
-        "observation_space": {
-            "revenue": "float — quarterly revenue in USD",
-            "costs": "float — total quarterly costs in USD",
-            "profit": "float — revenue minus costs",
-            "market_share": "float [0.0-1.0] — fraction of total market",
-            "employees": "int — number of employees",
-            "customer_satisfaction": "float [0.0-1.0]",
-            "marketing_budget": "float — current marketing spend",
-            "rd_investment": "float — current R&D spend",
-            "product_quality": "float [0.0-1.0]",
-            "quarter": "int — current quarter number",
-            "max_quarters": "int — max quarters for this task",
-            "done": "bool — whether episode has ended",
-            "reward": "float [0.0-1.0] — reward for this step",
-            "message": "str — human-readable summary of the quarter",
         },
     }
 
-@app.post("/grader", summary="Grade a completed episode")
+@app.post("/grader", response_model=Reward, summary="Grade a completed episode")
 def grader(req: GraderRequest):
+    """Run the grader on the current episode and return a score [0.0–1.0]."""
     env = get_env(req.task)
-    final_state = env.state()
-    return run_grader(task=req.task, history=env.history, final_state=final_state)
+    return run_grader(task=req.task, history=env.history, final_state=env.state())
 
 @app.get("/baseline", summary="Run baseline agent and return scores for all tasks")
 def baseline():
+    """Run rule-based baseline agent on all 3 tasks. Returns reproducible scores."""
     from baseline import run_baseline_agent
     scores = {}
     for task in GRADERS.keys():
