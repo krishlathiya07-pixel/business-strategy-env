@@ -118,8 +118,9 @@ def mcp(req: MCPRequest = None):
 # ─── Core OpenEnv Endpoints ───────────────────────────────────────────────────
 
 @app.post("/reset", response_model=Observation, summary="Reset the environment")
-def reset(req: ResetRequest):
-    """Reset the environment for a given task and return the initial observation."""
+def reset(req: ResetRequest = None):
+    if req is None:
+        req = ResetRequest()
     if req.task not in GRADERS:
         raise HTTPException(status_code=400, detail=f"Invalid task '{req.task}'. Valid: {list(GRADERS.keys())}")
     env = BusinessStrategyEnv(task=req.task, seed=req.seed)
