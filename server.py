@@ -162,53 +162,32 @@ def baseline():
 if __name__ == "__main__":
     uvicorn.run("server:app", host="0.0.0.0", port=7860, reload=False)
      
+# ✅ Health Endpoint
 @app.get("/health")
 def health():
     return {"status": "healthy"}
 
-
+# ✅ Metadata Endpoint
 @app.get("/metadata")
 def metadata():
     return {
-        "name": "Business Strategy Environment",
-        "description": "AI CEO simulation for strategic decision-making."
+        "name": "Business Strategy Env",
+        "description": "AI-powered business strategy simulation environment"
     }
 
-
+# ✅ Schema Endpoint
 @app.get("/schema")
 def schema():
     return {
-        "action": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string"},
-                "amount": {"type": "number"}
-            }
-        },
-        "observation": {
-            "type": "object",
-            "properties": {
-                "revenue": {"type": "number"},
-                "costs": {"type": "number"},
-                "profit": {"type": "number"},
-                "market_share": {"type": "number"},
-                "satisfaction": {"type": "number"}
-            }
-        },
-        "state": {
-            "type": "object",
-            "properties": {
-                "quarter": {"type": "integer"},
-                "done": {"type": "boolean"}
-            }
-        }
+        "action": {"type": "object"},
+        "observation": {"type": "object"},
+        "state": {"type": "object"}
     }
 
-
+# ✅ MCP Endpoint
 @app.post("/mcp")
 def mcp():
     return {
         "jsonrpc": "2.0",
-        "result": "ok",
-        "id": 1
+        "result": "ok"
     }
