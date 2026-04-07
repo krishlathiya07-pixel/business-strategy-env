@@ -4,12 +4,12 @@ version = "1.0.0"
 description = "A real-world business strategy simulation OpenEnv environment"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "fastapi==0.111.0",
-    "uvicorn==0.29.0",
-    "pydantic==2.7.1",
-    "requests==2.31.0",
-    "gradio==4.44.0",
-    "openenv-core==0.2.0"
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
+    "pydantic>=2.7.1",
+    "requests>=2.31.0",
+    "gradio>=5.0.0",
+    "openenv-core>=0.2.0"
 ]
 
 [project.scripts]
