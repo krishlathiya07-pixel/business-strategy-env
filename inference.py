@@ -7,15 +7,14 @@ from openai import OpenAI
 ENV_URL          = os.environ.get("ENV_URL", "https://ihere04u-business-strategy-env.hf.space")
 MAX_STEPS        = 12
 
-API_BASE_URL     = os.environ.get("API_BASE_URL", "https://api-inference.huggingface.co/v1")
+API_BASE_URL     = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME       = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 API_KEY          = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
-LOCAL_IMAGE_NAME = os.environ.get("LOCAL_IMAGE_NAME")
 
 client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-FALLBACK_ACTION = {"action": "increase_marketing", "amount": 5000}
 TASKS = ["survive", "grow_market_share", "scale_profitably"]
+VALID_ACTIONS = ["cut_costs", "increase_marketing", "expand_market", "invest_in_rd", "launch_product", "raise_prices"]
 
 # ─── Rule-Based Action ──────────────────────────────
 
@@ -93,28 +92,43 @@ def choose_action(obs, task, last_action=None):
     return act
 
 
-# ─── LLM Call (required by validator) ───────────────
+# ─── LLM Call (mandatory - hits validator proxy) ────
 
-def llm_strategy_hint(task, obs):
-    try:
-        resp = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": "You are a business strategy advisor."},
-                {"role": "user", "content": (
+def llm_get_action(task, obs, fallback_action):
+    resp = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a business strategy advisor. "
+                    "Reply with exactly one action word from this list: "
+                    "cut_costs, increase_marketing, expand_market, invest_in_rd, launch_product, raise_prices. "
+                    "No explanation. Just the action word."
+                )
+            },
+            {
+                "role": "user",
+                "content": (
                     f"Task: {task}. "
-                    f"Current state: profit={obs.get('profit')}, "
-                    f"market_share={obs.get('market_share')}, "
-                    f"satisfaction={obs.get('customer_satisfaction')}. "
-                    f"Reply with one word: the best action from "
-                    f"[cut_costs, increase_marketing, expand_market, invest_in_rd, launch_product, raise_prices]."
-                )}
-            ],
-            max_tokens=10,
-        )
-        return resp.choices[0].message.content.strip()
-    except Exception:
-        return None
+                    f"profit={obs.get('profit', 0)}, "
+                    f"market_share={obs.get('market_share', 0)}, "
+                    f"satisfaction={obs.get('customer_satisfaction', 0)}, "
+                    f"costs={obs.get('costs', 0)}, "
+                    f"revenue={obs.get('revenue', 0)}. "
+                    f"What is the best action?"
+                )
+            }
+        ],
+        max_tokens=10,
+        temperature=0.0,
+    )
+    llm_action = resp.choices[0].message.content.strip().lower()
+    # validate LLM response — fallback to rule-based if invalid
+    for valid in VALID_ACTIONS:
+        if valid in llm_action:
+            return valid
+    return fallback_action
 
 
 # ─── API Calls ──────────────────────────────────────
@@ -138,16 +152,18 @@ def run_task(task):
     obs         = env_reset(task)
     last_action = None
 
-    # LLM call to trigger validator proxy
-    llm_strategy_hint(task, obs)
-
     for step in range(1, MAX_STEPS + 1):
         if obs.get("done"):
             break
 
-        act    = choose_action(obs, task, last_action)
-        action = act.get("action", "increase_marketing")
-        amount = float(act.get("amount", 5000))
+        # Rule-based picks the smart action
+        rule_act = choose_action(obs, task, last_action)
+        fallback = rule_act.get("action", "increase_marketing")
+        amount   = float(rule_act.get("amount", 5000))
+
+        # LLM call goes through validator proxy (mandatory)
+        # If LLM fails hard, exception propagates and [END] is printed in main()
+        action = llm_get_action(task, obs, fallback)
 
         try:
             obs = env_step(task, action, amount)
