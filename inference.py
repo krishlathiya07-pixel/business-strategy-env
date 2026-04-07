@@ -1,11 +1,19 @@
 import os
 import json
 import requests
+import openai
 
 # ─── Config ─────────────────────────────────────────
 
 ENV_URL      = os.environ.get("ENV_URL", "https://ihere04u-business-strategy-env.hf.space")
 MAX_STEPS   = 12
+
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN     = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+
+client = openai.OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
 FALLBACK_ACTION = {"action": "increase_marketing", "amount": 5000}
 TASKS = ["survive", "grow_market_share", "scale_profitably"]
@@ -64,6 +72,7 @@ def choose_action(obs, task, last_action=None):
         elif market_share < 0.15:
             act = {"action": "expand_market", "amount": 7000}
         elif satisfaction >= 0.8 and profit > 0:
+            # 🔥 SAFE pricing logic (fixed)
             # 🔥 SAFE pricing logic (fixed)
             if profit < 10000:
                 act = {"action": "expand_market", "amount": 6000}
