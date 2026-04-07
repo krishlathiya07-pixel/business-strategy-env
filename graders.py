@@ -1,9 +1,14 @@
 """
 Graders for the Business Strategy Simulation Environment.
-Each grader evaluates an episode and returns a score in [0.0, 1.0].
+Each grader evaluates an episode and returns a score in (0.0, 1.0) exclusive.
 """
 
 from typing import Any, Dict, List
+
+
+def _clamp(score: float) -> float:
+    """Clamp score to strictly (0, 1) — never 0.0 or 1.0."""
+    return max(0.001, min(score, 0.999))
 
 
 def grade_survive(history: List[Dict], final_state: Dict[str, Any]) -> Dict[str, Any]:
@@ -12,11 +17,11 @@ def grade_survive(history: List[Dict], final_state: Dict[str, Any]) -> Dict[str,
     Score = (profitable quarters) / (total quarters played)
     """
     if not history:
-        return {"score": 0.0, "reason": "No history recorded."}
+        return {"score": _clamp(0.0), "reason": "No history recorded."}
 
     profitable = sum(1 for h in history if h["profit"] > 0)
     total = len(history)
-    score = round(profitable / total, 3)
+    score = _clamp(round(profitable / total, 3))
 
     return {
         "score": score,
@@ -34,7 +39,7 @@ def grade_grow_market_share(history: List[Dict], final_state: Dict[str, Any]) ->
     Bonus: +0.1 if achieved before quarter 8.
     """
     if not history:
-        return {"score": 0.0, "reason": "No history recorded."}
+        return {"score": _clamp(0.0), "reason": "No history recorded."}
 
     final_share = final_state.get("market_share", 0.0)
     base_score = min(final_share / 0.20, 1.0)
@@ -46,7 +51,7 @@ def grade_grow_market_share(history: List[Dict], final_state: Dict[str, Any]) ->
             bonus = round(0.1 * (1 - h["quarter"] / 8), 3)
             break
 
-    score = round(min(base_score + bonus, 1.0), 3)
+    score = _clamp(round(min(base_score + bonus, 1.0), 3))
 
     return {
         "score": score,
@@ -63,7 +68,7 @@ def grade_scale_profitably(history: List[Dict], final_state: Dict[str, Any]) -> 
     Score = weighted average of revenue_score (60%) + satisfaction_score (40%).
     """
     if not history:
-        return {"score": 0.0, "reason": "No history recorded."}
+        return {"score": _clamp(0.0), "reason": "No history recorded."}
 
     initial_revenue = 50000.0  # baseline at start
     final_revenue = final_state.get("revenue", initial_revenue)
@@ -80,7 +85,7 @@ def grade_scale_profitably(history: List[Dict], final_state: Dict[str, Any]) -> 
     else:
         sat_score = final_satisfaction / 0.6 * 0.5
 
-    score = round(0.6 * revenue_score + 0.4 * sat_score, 3)
+    score = _clamp(round(0.6 * revenue_score + 0.4 * sat_score, 3))
 
     return {
         "score": score,
@@ -106,5 +111,5 @@ GRADERS = {
 def run_grader(task: str, history: list, final_state: dict) -> dict:
     """Run the appropriate grader for a given task."""
     if task not in GRADERS:
-        return {"score": 0.0, "reason": f"Unknown task '{task}'. Valid: {list(GRADERS.keys())}"}
+        return {"score": _clamp(0.0), "reason": f"Unknown task '{task}'. Valid: {list(GRADERS.keys())}"}
     return GRADERS[task](history, final_state)
