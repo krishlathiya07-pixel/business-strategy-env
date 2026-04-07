@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: business-strategy-env
+Version: 1.0.0
+Summary: A real-world business strategy simulation OpenEnv environment
+Requires-Python: >=3.10
+Requires-Dist: fastapi==0.111.0
+Requires-Dist: uvicorn==0.29.0
+Requires-Dist: pydantic==2.7.1
+Requires-Dist: openai>=1.0.0
+Requires-Dist: requests>=2.31.0
+Requires-Dist: openenv-core>=0.2.0

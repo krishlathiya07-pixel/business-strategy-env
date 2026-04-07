@@ -1,0 +1,110 @@
+name: business-strategy-env
+version: "1.0.0"
+description: >
+  A real-world business strategy simulation where an AI agent acts as a CEO,
+  making quarterly decisions on marketing, hiring, R&D, pricing, and expansion
+  to achieve business objectives across three tasks of increasing difficulty.
+
+author: Krish Lathiya
+license: MIT
+
+tasks:
+  - id: survive
+    name: "Survive 4 Quarters"
+    difficulty: easy
+    description: "Keep company profit above zero for all 4 quarters."
+    max_steps: 4
+    score_range: [0.0, 1.0]
+
+  - id: grow_market_share
+    name: "Grow Market Share"
+    difficulty: medium
+    description: "Reach 20% market share within 8 quarters."
+    max_steps: 8
+    score_range: [0.0, 1.0]
+
+  - id: scale_profitably
+    name: "Scale Profitably"
+    difficulty: hard
+    description: "Double revenue AND maintain customer satisfaction >= 0.8 within 12 quarters."
+    max_steps: 12
+    score_range: [0.0, 1.0]
+
+api:
+  reset:
+    method: POST
+    path: /reset
+    body:
+      task: string
+      seed: integer
+  step:
+    method: POST
+    path: /step
+    body:
+      task: string
+      action: string
+      amount: float
+  state:
+    method: GET
+    path: /state
+    query:
+      task: string
+  tasks:
+    method: GET
+    path: /tasks
+  grader:
+    method: POST
+    path: /grader
+    body:
+      task: string
+  baseline:
+    method: GET
+    path: /baseline
+
+observation_space:
+  revenue: float
+  costs: float
+  profit: float
+  market_share: float
+  employees: integer
+  customer_satisfaction: float
+  marketing_budget: float
+  rd_investment: float
+  product_quality: float
+  quarter: integer
+  max_quarters: integer
+  done: boolean
+  reward: float
+  message: string
+
+action_space:
+  action:
+    type: string
+    values:
+      - increase_marketing
+      - decrease_marketing
+      - hire_employees
+      - layoff_employees
+      - cut_costs
+      - invest_in_rd
+      - launch_product
+      - expand_market
+      - raise_prices
+      - lower_prices
+  amount:
+    type: float
+    default: 5000.0
+
+reward:
+  type: float
+  range: [0.0, 1.0]
+  description: >
+    Task-specific reward signal.
+    survive: 1.0 per profitable quarter / total quarters.
+    grow_market_share: market_share / 0.20 capped at 1.0.
+    scale_profitably: weighted average of revenue growth (60%) and satisfaction (40%).
+
+docker:
+  base_image: python:3.11-slim
+  port: 7860
+  entrypoint: ["python", "server.py"]
