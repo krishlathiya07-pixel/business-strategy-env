@@ -6,8 +6,12 @@ Core environment logic implementing OpenEnv spec.
 import random
 from typing import Any, Dict, Optional
 
+try:
+    from openenv.core import Environment as Env
+except ImportError:
+    from openenv_fallback import Env
 
-class BusinessStrategyEnv:
+class BusinessStrategyEnv(Env):
     """
     Simulates a company operating over multiple quarters.
     An AI agent must make strategic decisions to achieve business goals.

@@ -147,6 +147,12 @@ python server.py        # start API server
 
 Visit: http://localhost:7860/docs
 
+### Local app entrypoint
+
+```bash
+python main.py
+```
+
 ### Docker
 
 ```bash
