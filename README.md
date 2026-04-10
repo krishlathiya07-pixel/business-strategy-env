@@ -58,6 +58,8 @@ Business strategy is a genuine real-world task — companies live and die by qua
 
 ## 👁️ Observation Space
 
+This environment returns both raw business metrics and higher-level strategy signals.
+
 ```json
 {
   "revenue": 50000.0,
@@ -69,6 +71,15 @@ Business strategy is a genuine real-world task — companies live and die by qua
   "marketing_budget": 5000.0,
   "rd_investment": 2000.0,
   "product_quality": 0.65,
+  "profit_margin": 0.30,
+  "cost_efficiency": 0.30,
+  "growth_signal": 0.40,
+  "profit_trend": 0.0,
+  "last_reward": 0.0,
+  "risk_level": 0.70,
+  "strategic_health": 0.37,
+  "growth_momentum": 0.07,
+  "decision_quality": "neutral",
   "quarter": 1,
   "max_quarters": 4,
   "done": false,
@@ -111,15 +122,56 @@ Undesirable behaviors are penalized:
 
 ---
 
+## 🧠 Advanced Learning Dynamics
+
+This environment is intentionally designed to challenge decision-making agents through:
+
+### 1. Multi-Objective Optimization
+Agents must balance:
+- Profitability
+- Market share growth
+- Customer satisfaction
+- Cost efficiency
+
+### 2. Delayed Rewards
+Investments in R&D improve future revenue rather than immediate outcomes.
+
+### 3. Strategic Trade-offs
+Each action has both positive and negative consequences:
+- Expanding markets increases growth but reduces satisfaction
+- Cost cutting improves margins but degrades product quality
+
+### 4. Stochastic Environment
+- Economic cycles affect revenue unpredictably
+- Competitor pressure reduces market share dynamically
+
+### 5. Non-Linear Reward Shaping
+Rewards include:
+- Trend-based bonuses
+- Strategic diversity incentives
+- Penalties for repetitive or short-sighted decisions
+
+### 6. Failure Cascades
+Poor decisions (e.g., low satisfaction) trigger compounding negative effects.
+
+### 7. Decision Feedback
+The environment exposes decision quality signals such as `decision_quality` and a `final_summary` at episode end.
+
+This creates a realistic environment requiring **long-term planning, adaptation, and strategic reasoning**.
+
+---
+
 ## 📊 Baseline Scores
 
 Scores from the included rule-based baseline agent (`baseline.py`):
 
 | Task | Score | Notes |
 |------|-------|-------|
-| `survive` | 1.000 | Profitable all 4 quarters |
-| `grow_market_share` | 1.000 | Reached 30% (target: 20%) |
-| `scale_profitably` | 0.890 | Revenue $81K, satisfaction 0.82 |
+| `survive` | 0.999 | Profitable all 4 quarters |
+| `grow_market_share` | 0.685 | Explores aggressively, but market share remains a challenge |
+| `scale_profitably` | 0.999 | Revenue target reached with tight satisfaction |
+
+> Note: Baseline performance is intentionally stochastic and may vary across seeds.
 
 ---
 

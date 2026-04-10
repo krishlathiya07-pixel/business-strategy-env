@@ -10,6 +10,7 @@ Or called from server.py /baseline endpoint.
 
 from environment import BusinessStrategyEnv
 from graders import run_grader, GRADERS
+import random
 
 
 def rule_based_agent(state: dict, task: str) -> dict:
@@ -23,6 +24,17 @@ def rule_based_agent(state: dict, task: str) -> dict:
     revenue = state["revenue"]
     costs = state["costs"]
     quarter = state["quarter"]
+
+    # Exploration randomness (baseline is intentionally imperfect)
+    if random.random() < 0.25:
+        return {
+            "action": random.choice([
+                "increase_marketing",
+                "expand_market",
+                "invest_in_rd",
+            ]),
+            "amount": 4000,
+        }
 
     # Task-specific strategy
     if task == "survive":
@@ -56,6 +68,9 @@ def rule_based_agent(state: dict, task: str) -> dict:
             return {"action": "expand_market", "amount": 8000}
 
     # Fallback
+    # Add randomness (20%)
+    if random.random() < 0.2:
+        return {"action": "increase_marketing", "amount": 3000}
     return {"action": "increase_marketing", "amount": 3000}
 
 
@@ -64,6 +79,7 @@ def run_baseline_agent(task: str, seed: int = 42) -> dict:
     Run the rule-based baseline agent on a single task.
     Returns grader result with score.
     """
+    random.seed(seed)  # Set random seed for reproducible exploration
     env = BusinessStrategyEnv(task=task, seed=seed)
     state = env.reset()
 

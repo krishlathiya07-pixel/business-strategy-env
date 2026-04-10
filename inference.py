@@ -11,7 +11,9 @@ API_BASE_URL     = os.environ.get("API_BASE_URL", "https://router.huggingface.co
 MODEL_NAME       = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 API_KEY          = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN")
 
-client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+client = None
+if API_KEY:
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
 TASKS = ["survive", "grow_market_share", "scale_profitably"]
 VALID_ACTIONS = ["cut_costs", "increase_marketing", "expand_market", "invest_in_rd", "launch_product", "raise_prices"]
@@ -95,39 +97,37 @@ def choose_action(obs, task, last_action=None):
 # ─── LLM Call (mandatory - hits validator proxy) ────
 
 def llm_get_action(task, obs, fallback_action):
-    resp = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are a business strategy advisor. "
-                    "Reply with exactly one action word from this list: "
-                    "cut_costs, increase_marketing, expand_market, invest_in_rd, launch_product, raise_prices. "
-                    "No explanation. Just the action word."
-                )
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Task: {task}. "
-                    f"profit={obs.get('profit', 0)}, "
-                    f"market_share={obs.get('market_share', 0)}, "
-                    f"satisfaction={obs.get('customer_satisfaction', 0)}, "
-                    f"costs={obs.get('costs', 0)}, "
-                    f"revenue={obs.get('revenue', 0)}. "
-                    f"What is the best action?"
-                )
-            }
-        ],
-        max_tokens=10,
-        temperature=0.0,
-    )
-    llm_action = resp.choices[0].message.content.strip().lower()
-    # validate LLM response — fallback to rule-based if invalid
-    for valid in VALID_ACTIONS:
-        if valid in llm_action:
-            return valid
+    if client is None:
+        return fallback_action
+
+    try:
+        resp = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Reply with one action only."
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Task: {task}, profit={obs.get('profit')}"
+                    )
+                }
+            ],
+            max_tokens=10,
+            temperature=0.0,
+        )
+
+        llm_action = resp.choices[0].message.content.strip().lower()
+
+        for valid in VALID_ACTIONS:
+            if valid in llm_action:
+                return valid
+
+    except Exception:
+        return fallback_action
+
     return fallback_action
 
 

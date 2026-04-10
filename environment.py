@@ -34,6 +34,7 @@ class BusinessStrategyEnv(Env):
         self.task = task
         self.seed = seed
         self.rng = random.Random(seed)
+        self.hidden_demand_factor = self.rng.uniform(0.8, 1.2)
         self.state_data: Dict[str, Any] = {}
         self.current_quarter = 0
         self.max_quarters = self._get_max_quarters()
@@ -46,6 +47,7 @@ class BusinessStrategyEnv(Env):
 
     def reset(self) -> Dict[str, Any]:
         self.rng = random.Random(self.seed)
+        self.hidden_demand_factor = self.rng.uniform(0.8, 1.2)
         self.current_quarter = 0
         self.done = False
         self.history = []
@@ -68,8 +70,38 @@ class BusinessStrategyEnv(Env):
         }
         return self.state_data.copy()
 
-    def state(self) -> Dict[str, Any]:
-        return self.state_data.copy()
+    def state(self):
+        s = self.state_data.copy()
+
+        # Efficiency metrics
+        s["profit_margin"] = s["profit"] / max(s["revenue"], 1)
+        s["cost_efficiency"] = 1 - (s["costs"] / max(s["revenue"], 1))
+
+        # Growth signals
+        s["growth_signal"] = (s["market_share"] + s["customer_satisfaction"]) / 2
+
+        # Trend awareness
+        if len(self.history) >= 2:
+            s["profit_trend"] = self.history[-1]["profit"] - self.history[-2]["profit"]
+        else:
+            s["profit_trend"] = 0.0
+
+        # Previous reward
+        s["last_reward"] = self.history[-1]["reward"] if self.history else 0.0
+
+        # Risk indicator
+        s["risk_level"] = s["costs"] / max(s["revenue"], 1)
+
+        # Strategic signal
+        s["strategic_health"] = (
+            0.4 * s["customer_satisfaction"] +
+            0.3 * s["market_share"] +
+            0.3 * max(min(s["profit"] / 20000, 1), 0)
+        )
+
+        s["growth_momentum"] = s["market_share"] * s["customer_satisfaction"]
+
+        return s
 
     def step(self, action: str, amount: float = 5000.0) -> Dict[str, Any]:
         if self.done:
@@ -90,6 +122,13 @@ class BusinessStrategyEnv(Env):
 
         # Compute reward
         reward = self._compute_reward()
+
+        if reward > 0.5:
+            self.state_data["decision_quality"] = "good"
+        elif reward < 0:
+            self.state_data["decision_quality"] = "poor"
+        else:
+            self.state_data["decision_quality"] = "neutral"
 
         # Check termination
         self.done = self._check_done()
@@ -142,6 +181,11 @@ class BusinessStrategyEnv(Env):
             s["costs"] -= cut
             s["product_quality"] = max(s["product_quality"] - 0.03, 0.1)
 
+            # repeated penalty
+            if len(self.history) >= 2:
+                if self.history[-1]["action"] == "cut_costs" and self.history[-2]["action"] == "cut_costs":
+                    s["product_quality"] -= 0.05
+
         elif action == "invest_in_rd":
             invest = min(amount, s["revenue"] * 0.2)
             s["rd_investment"] += invest
@@ -157,11 +201,12 @@ class BusinessStrategyEnv(Env):
             s["costs"] += amount
             s["market_share"] = min(s["market_share"] + 0.04, 1.0)
             s["revenue"] += amount * 1.2
+            s["customer_satisfaction"] -= 0.02  # NEW
 
         elif action == "raise_prices":
             s["revenue"] = s["revenue"] * 1.08
-            s["customer_satisfaction"] = max(s["customer_satisfaction"] - 0.04, 0.0)
-            s["market_share"] = max(s["market_share"] - 0.01, 0.01)
+            s["customer_satisfaction"] -= 0.04
+            s["market_share"] -= 0.01
 
         elif action == "lower_prices":
             s["revenue"] = s["revenue"] * 0.94
@@ -175,6 +220,86 @@ class BusinessStrategyEnv(Env):
         # Market naturally evolves
         s["revenue"] = s["revenue"] * (1 + 0.02 + noise + s["market_share"] * 0.05)
         s["costs"] = s["costs"] * (1 + 0.01 + self.rng.uniform(0, 0.02))  # inflation
+
+        # --- Economic cycles ---
+        economic_trend = self.rng.choice([-0.04, -0.02, 0.0, 0.03, 0.05])
+        s["revenue"] *= (1 + economic_trend)
+
+        # --- Competitor dynamics ---
+        competitor_pressure = self.rng.uniform(0.0, 0.04)
+        s["market_share"] -= competitor_pressure
+
+        # --- Quality advantage ---
+        if s["product_quality"] > 0.7:
+            s["market_share"] += 0.02
+
+        # --- Market saturation ---
+        if s["market_share"] > 0.25:
+            s["market_share"] *= 0.97
+
+        # --- Demand elasticity ---
+        price_effect = self.rng.uniform(-0.03, 0.03)
+        s["revenue"] *= (1 + price_effect)
+        s["revenue"] *= self.hidden_demand_factor
+
+        # --- Random market shock ---
+        if self.rng.random() < 0.15:
+            s["revenue"] *= 0.9
+
+        # --- Diminishing returns on high revenue ---
+        if s["revenue"] > 150000:
+            s["revenue"] *= 0.95
+
+        # --- Scaling cost pressure ---
+        if s["employees"] > 30:
+            s["costs"] *= 1.08
+
+        # --- Survival task pressure ---
+        if self.task == "survive":
+            if s["profit"] < 8000:
+                s["costs"] *= 1.02
+            if s["profit"] < 4000:
+                s["revenue"] *= 0.996
+
+        # --- Survival pressure ---
+        s["costs"] *= 1.05
+
+        # --- Low satisfaction penalty ---
+        if s["customer_satisfaction"] < 0.6:
+            s["market_share"] *= 0.92
+
+        # --- Mid-market growth resistance ---
+        if 0.15 < s["market_share"] < 0.25:
+            s["market_share"] *= 0.97
+
+        # --- Grow task resistance ---
+        if self.task == "grow_market_share" and s["market_share"] > 0.15:
+            s["market_share"] *= 0.94
+
+        # --- Delayed R&D benefit ---
+        if self.current_quarter > 1:
+            rd_boost = min(s["rd_investment"] / 120000, 0.12)
+            s["revenue"] *= (1 + rd_boost)
+
+        # --- Customer collapse risk ---
+        if s["customer_satisfaction"] < 0.4:
+            s["market_share"] *= 0.88
+
+        # --- Survival risk degradation ---
+        if s["profit"] < 2000:
+            s["customer_satisfaction"] -= 0.05
+
+        # --- Aggressive growth instability ---
+        if s["market_share"] > 0.25:
+            s["customer_satisfaction"] -= 0.02
+
+        # --- Scale task shock ---
+        if self.task == "scale_profitably" and self.rng.random() < 0.35:
+            s["revenue"] *= 0.92
+
+        # --- Scale satisfaction risk ---
+        if self.task == "scale_profitably" and self.rng.random() < 0.30:
+            s["customer_satisfaction"] = max(s["customer_satisfaction"] - 0.03, 0.0)
 
         # Profit derived
         s["profit"] = s["revenue"] - s["costs"]
@@ -193,27 +318,78 @@ class BusinessStrategyEnv(Env):
 
     def _compute_reward(self) -> float:
         s = self.state_data
+
+        # --- Core components ---
+        profit_score = max(min(s["profit"] / 25000, 1), -1)
+        market_score = min(s["market_share"] / 0.25, 1)
+        satisfaction_score = s["customer_satisfaction"]
+
+        # --- Efficiency ---
+        cost_ratio = s["costs"] / max(s["revenue"], 1)
+        efficiency_penalty = min(cost_ratio, 2)
+
+        # --- Base reward ---
+        reward = (
+            0.30 * profit_score +
+            0.25 * market_score +
+            0.20 * satisfaction_score -
+            0.20 * efficiency_penalty
+        )
+
+        # --- Stability bonus ---
+        if s["profit"] > 0 and s["customer_satisfaction"] > 0.75:
+            reward += 0.1
+
+        # --- Growth trend bonus ---
+        if len(self.history) >= 2:
+            if self.history[-1]["profit"] > self.history[-2]["profit"]:
+                reward += 0.05
+
+        # --- Strategic diversity bonus ---
+        if len(self.history) >= 3:
+            actions = [h["action"] for h in self.history[-3:]]
+            if len(set(actions)) == 3:
+                reward += 0.05
+
+        # --- Penalty for repeated actions ---
+        if len(self.history) >= 3:
+            if all(h["action"] == self.history[-1]["action"] for h in self.history[-3:]):
+                reward -= 0.1
+
+        # --- Loss penalty ---
+        if s["profit"] < 0:
+            reward -= 0.25
+
+        # --- Uncertainty penalty (realism boost) ---
+        reward -= abs(self.rng.uniform(0, 0.03))
+
+        # --- Reward dampening ---
+        reward *= 0.85
+
+        # slight survival dampening
         if self.task == "survive":
-            return 1.0 if s["profit"] > 0 else 0.0
+            reward *= 0.9
 
-        elif self.task == "grow_market_share":
-            return round(min(s["market_share"] / 0.20, 1.0), 3)
-
-        elif self.task == "scale_profitably":
-            rev_score = min(s["revenue"] / 100000.0, 1.0)
-            sat_score = s["customer_satisfaction"] if s["customer_satisfaction"] >= 0.8 else s["customer_satisfaction"] * 0.5
-            return round((rev_score + sat_score) / 2, 3)
-
-        return 0.0
+        return round(max(min(reward, 1), -1), 3)
 
     def _check_done(self) -> bool:
         s = self.state_data
+        done = False
         if self.current_quarter >= self.max_quarters:
-            return True
-        if s["profit"] < -50000:
+            done = True
+        elif s["profit"] < -50000:
             s["message"] = "💀 Bankruptcy! Company has collapsed."
-            return True
-        if s["employees"] < 5:
+            done = True
+        elif s["employees"] < 5:
             s["message"] = "💀 Too few employees. Company shut down."
-            return True
-        return False
+            done = True
+
+        if done:
+            s["final_summary"] = {
+                "final_profit": s["profit"],
+                "final_market_share": s["market_share"],
+                "final_satisfaction": s["customer_satisfaction"],
+                "total_steps": self.current_quarter,
+            }
+
+        return done
